@@ -9,6 +9,7 @@ A 3D interactive globe with customizable location markers.
 - Custom location markers
 - Support for custom 3D models as markers (GLB format)
 - Click-to-focus on markers
+- Selective bloom effect for emissive materials
 
 ## Usage
 
@@ -79,6 +80,83 @@ function focusOnTokyo() {
 ```
 
 Users can also click on any marker to automatically zoom and rotate to that location.
+
+### Creating Glowing Markers with Emissive Materials
+
+The globe features a selective bloom effect that makes only emissive materials glow. You can adjust the bloom settings:
+
+```js
+import { setBloomSettings } from '../globe/main.js';
+
+// Increase glow intensity
+function enhanceGlow() {
+  setBloomSettings(3.0, 0.7, 0);
+}
+
+// Subtle glow
+function subtleGlow() {
+  setBloomSettings(1.5, 0.3, 0);
+}
+
+// Turn off glow (almost)
+function minimizeGlow() {
+  setBloomSettings(0.1, 0.1, 0);
+}
+```
+
+The bloom effect parameters are:
+- `strength` (0-5): Intensity of the bloom/glow
+- `radius` (0-1): How far the bloom extends
+- `threshold` (0-1): Minimum brightness required for bloom
+
+#### Preparing Models with Emissive Materials in Blender
+
+For the selective bloom effect to work, you need to set up emissive materials properly in Blender:
+
+1. In Blender, select your object and go to the Material Properties panel
+2. Create or select a material
+3. Scroll down to the "Emission" section and enable it
+4. Set "Emission Color" to a bright color (this is the color that will glow)
+5. Set "Emission Strength" to a value above 0 (higher values = stronger glow):
+   - 1.0-3.0: Subtle glow
+   - 3.0-5.0: Medium glow
+   - 5.0+: Strong glow
+6. Export as GLB format, ensuring "Export Materials" is checked
+
+Only parts of your model with emission enabled will glow. You can have multiple materials on a single model, with only some of them set to be emissive.
+
+#### Troubleshooting Bloom Effect
+
+If your emissive materials aren't glowing properly:
+
+1. **Ensure proper export from Blender**:
+   - Make sure you're using "Export" → "glTF 2.0 (.glb/.gltf)"
+   - Check "Materials" in the export settings
+   - Try increasing emission strength to 10+ for more visible results
+
+2. **Force bloom on all markers** (if nothing else works):
+   ```js
+   import { forceBloomOnAllMarkers } from '../globe/main.js';
+   
+   // Call this after the globe is initialized
+   forceBloomOnAllMarkers();
+   ```
+
+3. **Debug the scene**:
+   ```js
+   import { debugScene } from '../globe/main.js';
+   
+   // Call this to see which objects have bloom enabled
+   debugScene();
+   ```
+
+4. **Try stronger bloom settings**:
+   ```js
+   import { setBloomSettings } from '../globe/main.js';
+   
+   // Use maximum bloom settings
+   setBloomSettings(5.0, 1.0, 0);
+   ```
 
 If the model fails to load, the system will automatically fall back to the default cone markers.
 

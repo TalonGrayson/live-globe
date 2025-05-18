@@ -1,9 +1,25 @@
 import * as THREE from 'three';
 
-// Create Earth with realistic textures
+// Create Earth with realistic textures and day/night effect
 export async function createEarth(radius) {
+  // Safely check for environment variables
+  const isBrowser = typeof window !== 'undefined';
+  
+  // Try to get environment variables if available, or use defaults
+  const ambientLight = isBrowser && window.ENV_SUN_AMBIENT_LIGHT !== undefined 
+    ? window.ENV_SUN_AMBIENT_LIGHT 
+    : 0.1;
+    
+  const emissionIntensity = isBrowser && window.ENV_SUN_EMISSION_INTENSITY !== undefined 
+    ? window.ENV_SUN_EMISSION_INTENSITY 
+    : 0.2;
+    
+  const debugTextures = isBrowser && window.ENV_DEBUG !== undefined 
+    ? window.ENV_DEBUG 
+    : false;
+  
   const textureLoader = new THREE.TextureLoader();
-  const DEBUG_TEXTURES = true; // Enable texture debugging
+  const DEBUG_TEXTURES = debugTextures; // Enable texture debugging
   
   // Fallback simple texture in case loading fails
   const createFallbackTexture = (color) => {
@@ -121,31 +137,113 @@ export async function createEarth(radius) {
   configureTexture(roughnessMap);
   configureTexture(aoMap);
   
-  // Create Earth material with enhanced properties
-  const earthMaterial = new THREE.MeshStandardMaterial({
-    map: diffuseMap,
-    bumpMap: bumpMap,
-    bumpScale: 0.02, // Reduced further to avoid artifacts
-    roughnessMap: roughnessMap,
-    roughness: 0.7,
-    metalness: 0.0, // Removed metalness for more natural look
-    aoMap: aoMap,
-    aoMapIntensity: 0.8,
-    envMapIntensity: 0.8,
-    displacementScale: 0,  // Disabled displacement to avoid glitches
+  // Create custom shader material for day/night transition based on sun position
+  const earthMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      dayTexture: { value: diffuseMap },
+      bumpTexture: { value: bumpMap },
+      bumpScale: { value: 1 },
+      sunPosition: { value: new THREE.Vector3(50, 0, 0) }, // Default sun position (will be updated)
+      ambientLight: { value: ambientLight }, // Get from environment
+      emissionIntensity: { value: emissionIntensity } // Get from environment
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vPosition;
+      
+      void main() {
+        vUv = uv;
+        // Output the world-space normal
+        vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+        // Output the world-space position
+        vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D dayTexture;
+      uniform sampler2D bumpTexture;
+      uniform float bumpScale;
+      uniform vec3 sunPosition;
+      uniform float ambientLight;
+      uniform float emissionIntensity;
+      
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vPosition;
+      
+      void main() {
+        // Normalized sun direction in world space - pointing FROM the sun TO the Earth center
+        vec3 sunDirection = normalize(-sunPosition);
+        
+        // Bump mapping - perturb normal slightly for more realism
+        vec3 normal = normalize(vNormal);
+        vec4 bumpData = texture2D(bumpTexture, vUv);
+        
+        // Apply bump mapping in world space
+        normal = normalize(normal + bumpScale * (bumpData.rgb - 0.5));
+        
+        // Calculate day-night mix factor based on dot product of normal and sun direction
+        // Negative dot product because sunDirection points from sun to Earth, while normal points outward
+        float dayNightMix = -dot(normal, sunDirection);
+        
+        // Apply smooth transition between day and night
+        float lightness = smoothstep(-0.2, 0.3, dayNightMix);
+        
+        // Ensure minimum ambient light on the dark side
+        lightness = max(lightness, ambientLight);
+        
+        // Get the base day texture color
+        vec4 dayColor = texture2D(dayTexture, vUv);
+        
+        // For night side: create a darker version of the day texture with emission
+        vec4 nightColor = dayColor * 0.05; // Darkened base texture
+        
+        // Add emission to night side (using day texture as a guide for emission intensity)
+        // Areas that are brighter in day texture will emit more light at night
+        float luminance = 0.2 * dayColor.r + 0.587 * dayColor.g + 0.114 * dayColor.b;
+        nightColor.rgb += dayColor.rgb * luminance * emissionIntensity;
+        
+        // Mix between night and day textures
+        vec4 finalColor = mix(nightColor, dayColor, lightness);
+        
+        gl_FragColor = finalColor;
+      }
+    `,
     side: THREE.FrontSide,
-    transparent: false,
-    flatShading: false,
   });
   
   // Create Earth mesh with higher resolution
   const earthGeometry = new THREE.SphereGeometry(radius, 128, 128); // Increased segments
   const earth = new THREE.Mesh(earthGeometry, earthMaterial);
   
-  // Set up second set of UVs for aoMap
-  earthGeometry.setAttribute('uv2', new THREE.BufferAttribute(
-    earthGeometry.attributes.uv.array, 2
-  ));
+  // Method to update sun position
+  earth.updateSunPosition = function(sunPosition) {
+    if (this.material && this.material.uniforms) {
+      this.material.uniforms.sunPosition.value.copy(sunPosition);
+    }
+  };
+  
+  // Method to update shader parameters
+  earth.updateShaderParameters = function(params = {}) {
+    if (!this.material || !this.material.uniforms) return;
+    
+    // Update ambient light if provided
+    if (params.ambientLight !== undefined) {
+      this.material.uniforms.ambientLight.value = params.ambientLight;
+    }
+    
+    // Update emission intensity if provided
+    if (params.emissionIntensity !== undefined) {
+      this.material.uniforms.emissionIntensity.value = params.emissionIntensity;
+    }
+    
+    // Update bump scale if provided
+    if (params.bumpScale !== undefined) {
+      this.material.uniforms.bumpScale.value = params.bumpScale;
+    }
+  };
   
   return earth;
 }

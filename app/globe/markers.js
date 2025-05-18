@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Bloom layer constant (must match main.js)
+const BLOOM_SCENE = 1;
+
 // Create location markers on the globe
 export function createLocationMarkers(locations, radius, modelUrl = null) {
   // Create parent object to hold all markers
@@ -89,14 +92,57 @@ function createMarkerWithModel(position, gltf) {
   const originalScene = gltf.scene;
   const model = originalScene.clone(true); // true for deep clone
   
-  // Ensure all materials are cloned properly
+  // Debug info
+  console.log('Loading GLB model for marker');
+  
+  // Keep track if we found any emissive materials
+  let hasEmissiveMaterials = false;
+  
+  // Ensure all materials are cloned properly and enable bloom for emissive materials
   model.traverse((node) => {
     if (node.isMesh) {
+      console.log(`Found mesh: ${node.name}`);
+      
       // Make sure materials are properly preserved and can receive/cast shadows
       if (Array.isArray(node.material)) {
-        node.material = node.material.map(mat => mat.clone());
+        console.log(`Mesh has multiple materials: ${node.material.length}`);
+        node.material = node.material.map(mat => {
+          const clonedMat = mat.clone();
+          
+          // Debug emissive properties
+          if (clonedMat.emissive) {
+            console.log(`Material has emissive color: ${clonedMat.emissive.getHexString()}`);
+            console.log(`Material emissive intensity: ${clonedMat.emissiveIntensity}`);
+            
+            // Enable bloom layer for emissive materials
+            // More robust check: any material with emissive color and intensity > 0
+            if (clonedMat.emissiveIntensity > 0 && 
+                !(clonedMat.emissive.r === 0 && clonedMat.emissive.g === 0 && clonedMat.emissive.b === 0)) {
+              console.log('Enabling bloom for this material');
+              node.layers.enable(BLOOM_SCENE);
+              hasEmissiveMaterials = true;
+            }
+          }
+          return clonedMat;
+        });
       } else if (node.material) {
-        node.material = node.material.clone();
+        const clonedMat = node.material.clone();
+        
+        // Debug emissive properties
+        if (clonedMat.emissive) {
+          console.log(`Material has emissive color: ${clonedMat.emissive.getHexString()}`);
+          console.log(`Material emissive intensity: ${clonedMat.emissiveIntensity}`);
+          
+          // Enable bloom layer for emissive materials
+          // More robust check: any material with emissive color and intensity > 0
+          if (clonedMat.emissiveIntensity > 0 && 
+              !(clonedMat.emissive.r === 0 && clonedMat.emissive.g === 0 && clonedMat.emissive.b === 0)) {
+            console.log('Enabling bloom for this material');
+            node.layers.enable(BLOOM_SCENE);
+            hasEmissiveMaterials = true;
+          }
+        }
+        node.material = clonedMat;
       }
       
       // Enable shadows
@@ -104,6 +150,20 @@ function createMarkerWithModel(position, gltf) {
       node.receiveShadow = true;
     }
   });
+  
+  // If we didn't find any emissive materials but we should have, try a different approach
+  if (!hasEmissiveMaterials) {
+    console.log("No emissive materials detected automatically. Trying alternative approach...");
+    
+    // Force bloom on entire model - this is a fallback approach
+    model.traverse((node) => {
+      // Enable bloom layer on all meshes in the model
+      if (node.isMesh) {
+        node.layers.enable(BLOOM_SCENE);
+        console.log(`Forced bloom on mesh: ${node.name}`);
+      }
+    });
+  }
   
   // Scale the model appropriately
   const scale = 0.05;
@@ -125,11 +185,16 @@ function createMarker(position) {
   // Make marker slightly above the surface
   const markerSize = 0.1;
   const markerHeight = 0.1;
-  const adjustedPosition = position.clone().multiplyScalar(1.02);
+  const adjustedPosition = position.clone().multiplyScalar(1.005);
   
   // Create cone geometry pointing outward from the center
   const markerGeometry = new THREE.ConeGeometry(markerSize, markerHeight, 8);
-  const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+  const markerMaterial = new THREE.MeshBasicMaterial({ 
+    color: 0xff3333,
+    // Reduced emissive properties for more subtle glow
+    emissive: 0xff3333,
+    emissiveIntensity: 0.2  // Reduced from 0.5 to 0.2
+  });
   
   // Create marker mesh
   const marker = new THREE.Mesh(markerGeometry, markerMaterial);
@@ -138,6 +203,9 @@ function createMarker(position) {
   marker.position.copy(adjustedPosition);
   marker.lookAt(new THREE.Vector3(0, 0, 0));
   marker.rotateX(Math.PI / 2);
+  
+  // Enable bloom effect for the entire marker
+  marker.layers.enable(BLOOM_SCENE);
   
   return marker;
 }

@@ -1,11 +1,61 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 // Create location markers on the globe
-export function createLocationMarkers(locations, radius) {
+export function createLocationMarkers(locations, radius, modelUrl = null) {
   // Create parent object to hold all markers
   const markersGroup = new THREE.Object3D();
   
-  // Process each location
+  // If a model URL is provided, load it first
+  if (modelUrl) {
+    const loader = new GLTFLoader();
+    
+    // Add cache-busting parameter to prevent browsers from using cached models
+    const cacheBustedUrl = modelUrl + (modelUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    
+    // Load the model asynchronously
+    loader.load(
+      cacheBustedUrl,
+      (gltf) => {
+        // Process each location
+        locations.forEach(location => {
+          // Convert latitude/longitude to 3D position
+          const position = latLngToVector3(location.latitude, location.longitude, radius);
+          
+          // Create marker with the loaded model
+          const markerMesh = createMarkerWithModel(position, gltf);
+          
+          // Attach location data to the model and all its children
+          markerMesh.userData.locationData = location;
+          markerMesh.traverse((child) => {
+            child.userData.locationData = location;
+          });
+          
+          // Add to parent group
+          markersGroup.add(markerMesh);
+        });
+      },
+      // Progress callback
+      (xhr) => {
+        console.log(`${(xhr.loaded / xhr.total * 100)}% loaded`);
+      },
+      // Error callback
+      (error) => {
+        console.error('Error loading GLTF model:', error);
+        // Fall back to default markers
+        createDefaultMarkers(locations, radius, markersGroup);
+      }
+    );
+  } else {
+    // Use default markers if no model provided
+    createDefaultMarkers(locations, radius, markersGroup);
+  }
+  
+  return markersGroup;
+}
+
+// Helper function to create default markers for all locations
+function createDefaultMarkers(locations, radius, markersGroup) {
   locations.forEach(location => {
     // Convert latitude/longitude to 3D position
     const position = latLngToVector3(location.latitude, location.longitude, radius);
@@ -17,8 +67,6 @@ export function createLocationMarkers(locations, radius) {
     // Add to parent group
     markersGroup.add(markerMesh);
   });
-  
-  return markersGroup;
 }
 
 // Convert latitude and longitude to 3D Vector
@@ -35,7 +83,44 @@ function latLngToVector3(lat, lng, radius) {
   return new THREE.Vector3(x, y, z);
 }
 
-// Create marker mesh
+// Create marker mesh using a GLTF model
+function createMarkerWithModel(position, gltf) {
+  // Create a properly cloned model to preserve materials
+  const originalScene = gltf.scene;
+  const model = originalScene.clone(true); // true for deep clone
+  
+  // Ensure all materials are cloned properly
+  model.traverse((node) => {
+    if (node.isMesh) {
+      // Make sure materials are properly preserved and can receive/cast shadows
+      if (Array.isArray(node.material)) {
+        node.material = node.material.map(mat => mat.clone());
+      } else if (node.material) {
+        node.material = node.material.clone();
+      }
+      
+      // Enable shadows
+      node.castShadow = true;
+      node.receiveShadow = true;
+    }
+  });
+  
+  // Scale the model appropriately
+  const scale = 0.05;
+  model.scale.set(scale, scale, scale);
+  
+  // Position model slightly above the surface
+  const adjustedPosition = position.clone().multiplyScalar(1.005);
+  model.position.copy(adjustedPosition);
+  
+  // Orient model to point outward from center
+  model.lookAt(new THREE.Vector3(0, 0, 0));
+  model.rotateX(Math.PI / 2);
+  
+  return model;
+}
+
+// Create default marker mesh (cone)
 function createMarker(position) {
   // Make marker slightly above the surface
   const markerSize = 0.1;

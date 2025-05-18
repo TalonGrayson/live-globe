@@ -13,6 +13,8 @@ let scene, camera, renderer, controls;
 let earth, atmosphere, locationMarkers;
 let raycaster, mouse;
 let currentIntersection = null;
+let clickedMarker = null; // Track the clicked marker
+let isAnimating = false; // Track if camera animation is in progress
 let container;
 
 const EARTH_RADIUS = 5;
@@ -115,12 +117,15 @@ export async function setupEarth(containerElement) {
       
       // Load location data and create markers
       const locations = await loadLocationData();
-      locationMarkers = createLocationMarkers(locations, EARTH_RADIUS);
+      // Check if a custom marker model URL has been provided
+      const markerModelUrl = window.MARKER_MODEL_URL || null;
+      locationMarkers = createLocationMarkers(locations, EARTH_RADIUS, markerModelUrl);
       scene.add(locationMarkers);
       
       // Add event listeners
       window.addEventListener('resize', onWindowResize);
       container.addEventListener('mousemove', onMouseMove);
+      container.addEventListener('click', onMouseClick);
       
       // Create zoom controls if they don't exist
       const createZoomControls = () => {
@@ -222,6 +227,7 @@ export async function setupEarth(containerElement) {
         window.removeEventListener('resize', onWindowResize);
         if (container) {
           container.removeEventListener('mousemove', onMouseMove);
+          container.removeEventListener('click', onMouseClick);
         }
         
         // Remove zoom controls
@@ -249,6 +255,8 @@ export async function setupEarth(containerElement) {
         raycaster = null;
         mouse = null;
         currentIntersection = null;
+        clickedMarker = null; // Clear clicked marker reference
+        isAnimating = false; // Reset animation state
         container = null;
       };
       
@@ -281,9 +289,129 @@ function onMouseMove(event) {
   mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
 }
 
+// Handle mouse click for marker selection
+function onMouseClick(event) {
+  if (!raycaster || !camera || !locationMarkers) return;
+  
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(locationMarkers, true);
+  
+  if (intersects.length > 0) {
+    const intersectedObject = intersects[0].object;
+    let locationData;
+    
+    // Check if this object has location data
+    if (intersectedObject.userData && intersectedObject.userData.locationData) {
+      locationData = intersectedObject.userData.locationData;
+    } else {
+      // Try to find location data in parent objects (for GLB models with multiple meshes)
+      let parent = intersectedObject.parent;
+      while (parent && !locationData) {
+        if (parent.userData && parent.userData.locationData) {
+          locationData = parent.userData.locationData;
+        }
+        parent = parent.parent;
+      }
+    }
+    
+    if (locationData) {
+      // Set this as the clicked marker
+      clickedMarker = intersectedObject;
+      // Focus on the location
+      focusOnLocation(locationData);
+      // Update the info panel
+      updateInfoPanel(locationData);
+    }
+  } else {
+    // Clicked away from any marker, clear clicked marker state
+    clickedMarker = null;
+    // Hide info panel when clicking away
+    const infoPanel = document.getElementById('info-panel');
+    if (infoPanel) {
+      infoPanel.classList.add('hidden');
+    }
+  }
+}
+
+// Focus the camera on a specific location
+function focusOnLocation(locationData) {
+  if (!camera || !controls) return;
+  
+  // Set animating flag to true
+  isAnimating = true;
+  
+  // Convert the location to a 3D position
+  const position = latLngToVector3(locationData.latitude, locationData.longitude, EARTH_RADIUS);
+  
+  // Calculate target position slightly away from the surface in the direction from center to position
+  const targetPosition = position.clone().multiplyScalar(1.8);
+  
+  // Animate camera movement
+  const startPosition = camera.position.clone();
+  const duration = 1000; // 1 second
+  const startTime = Date.now();
+  
+  function animateCamera() {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Use easing function for smoother animation
+    const easeProgress = easeOutQuad(progress);
+    
+    // Interpolate between start and target position
+    const newPosition = new THREE.Vector3().lerpVectors(
+      startPosition,
+      targetPosition,
+      easeProgress
+    );
+    
+    // Update camera position
+    camera.position.copy(newPosition);
+    
+    // Make camera look at the globe center (0,0,0), not the marker
+    camera.lookAt(new THREE.Vector3(0, 0, 0));
+    
+    // Always keep the controls target at the globe's center
+    controls.target.set(0, 0, 0);
+    
+    // Continue animation if not complete
+    if (progress < 1) {
+      requestAnimationFrame(animateCamera);
+    } else {
+      // Animation complete, reset animating flag
+      isAnimating = false;
+    }
+  }
+  
+  // Start animation
+  animateCamera();
+}
+
+// Easing function for smoother animation
+function easeOutQuad(t) {
+  return t * (2 - t);
+}
+
+// Convert latitude and longitude to 3D Vector (duplicate of the one in markers.js)
+function latLngToVector3(lat, lng, radius) {
+  // Convert to radians
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lng + 180) * (Math.PI / 180);
+  
+  // Calculate position
+  const x = -radius * Math.sin(phi) * Math.cos(theta);
+  const y = radius * Math.cos(phi);
+  const z = radius * Math.sin(phi) * Math.sin(theta);
+  
+  return new THREE.Vector3(x, y, z);
+}
+
 // Check for hover intersections
 function checkIntersections() {
   if (!raycaster || !camera || !locationMarkers) return;
+  
+  // Skip hover detection during camera animation
+  if (isAnimating) return;
   
   raycaster.setFromCamera(mouse, camera);
   
@@ -291,17 +419,77 @@ function checkIntersections() {
   
   if (intersects.length > 0) {
     const intersectedObject = intersects[0].object;
+    let locationData;
     
-    if (currentIntersection !== intersectedObject) {
+    // Check if this object has location data
+    if (intersectedObject.userData && intersectedObject.userData.locationData) {
+      locationData = intersectedObject.userData.locationData;
+    } else {
+      // Try to find location data in parent objects (for GLB models with multiple meshes)
+      let parent = intersectedObject.parent;
+      while (parent && !locationData) {
+        if (parent.userData && parent.userData.locationData) {
+          locationData = parent.userData.locationData;
+        }
+        parent = parent.parent;
+      }
+    }
+    
+    // Only update if we found location data and it's a different object from what we're currently showing
+    if (locationData && currentIntersection !== intersectedObject) {
       currentIntersection = intersectedObject;
-      const locationData = intersectedObject.userData.locationData;
+      // If we hover over a different marker than clicked, update the info panel
+      clickedMarker = null; // Clear clicked state when hovering a different marker
       updateInfoPanel(locationData);
     }
-  } else if (currentIntersection) {
+  } else if (currentIntersection && !clickedMarker) {
+    // Only hide the panel if we're not hovering over a marker AND no marker is clicked
     currentIntersection = null;
     const infoPanel = document.getElementById('info-panel');
     if (infoPanel) {
       infoPanel.classList.add('hidden');
     }
   }
+}
+
+// Utility function to set a custom marker model
+export function setMarkerModel(modelUrl) {
+  window.MARKER_MODEL_URL = modelUrl;
+}
+
+// Function to update markers with a new model on an existing globe
+export async function updateMarkers(modelUrl = null) {
+  if (!scene || !locationMarkers) {
+    console.error('Globe not initialized yet');
+    return;
+  }
+  
+  // Clear THREE.js cache to ensure new models are loaded
+  // This helps when loading models with the same URL but different content
+  THREE.Cache.clear();
+  
+  // Remove current markers
+  scene.remove(locationMarkers);
+  
+  // Get current location data
+  const locations = await loadLocationData();
+  
+  // Create new markers with the model URL
+  locationMarkers = createLocationMarkers(locations, EARTH_RADIUS, modelUrl);
+  
+  // Add new markers to scene
+  scene.add(locationMarkers);
+}
+
+// Function to focus the globe on a specific location
+export function focusOnLocationByCoords(latitude, longitude) {
+  if (!scene || !camera || !controls) {
+    console.error('Globe not initialized yet');
+    return;
+  }
+  
+  focusOnLocation({
+    latitude: latitude,
+    longitude: longitude
+  });
 } 

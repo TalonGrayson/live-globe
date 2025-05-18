@@ -1,66 +1,102 @@
 # Live Globe
 
-A 3D Earth globe visualization with geolocation data, built with Remix and Three.js.
+A 3D interactive globe with customizable location markers.
 
 ## Features
 
-- Interactive 3D Earth globe
-- Real-time geolocation data visualization
-- Zoom and rotation controls
-- Location information panel on hover
+- 3D Earth visualization with atmospheric effects
+- Interactive controls for panning and zooming
+- Custom location markers
+- Support for custom 3D models as markers (GLB format)
+- Click-to-focus on markers
 
-## Tech Stack
+## Usage
 
-- [Remix](https://remix.run/) - Full-stack web framework
-- [Three.js](https://threejs.org/) - 3D library for WebGL rendering
-- [Prisma](https://www.prisma.io/) - Database ORM
+### Basic Setup
 
-## Development
+```js
+import { setupEarth } from './app/globe/main.js';
 
-To run the development server:
-
-```bash
-npm run dev
+// Initialize the globe
+const container = document.getElementById('globe-container');
+setupEarth(container);
 ```
 
-For both the Remix development server and backend API server:
+### Using Custom 3D Models for Markers
 
-```bash
-npm run dev:full
+You can use your own GLB models for location markers. Add this code to your application's main JavaScript file (e.g., `app/routes/index.jsx` or any file where you initialize the globe):
+
+```js
+import { setupEarth, setMarkerModel } from '../globe/main.js';
+
+// In your component or initialization function:
+function initGlobe() {
+  // Set the custom model before initializing
+  setMarkerModel('/models/pin.glb');
+  
+  // Then initialize the globe
+  const container = document.getElementById('globe-container');
+  setupEarth(container);
+}
+
+// Call initGlobe() when your component mounts
 ```
 
-## Database
+### Updating Markers on an Existing Globe
 
-To run migrations:
+You can switch marker models on an already initialized globe. Add this to your application code where appropriate:
 
-```bash
-npm run migrate
+```js
+import { updateMarkers } from '../globe/main.js';
+
+// Update markers with a new model
+function changeMarkers() {
+  updateMarkers('/models/new-pin.glb');
+}
+
+// Or revert to default markers
+function resetMarkers() {
+  updateMarkers();
+}
 ```
 
-To generate Prisma client:
+### Focusing on Specific Locations
 
-```bash
-npm run generate
+You can programmatically focus the globe on specific coordinates:
+
+```js
+import { focusOnLocationByCoords } from '../globe/main.js';
+
+// Focus on New York
+function focusOnNewYork() {
+  focusOnLocationByCoords(40.7128, -74.0060);
+}
+
+// Focus on Tokyo
+function focusOnTokyo() {
+  focusOnLocationByCoords(35.6762, 139.6503);
+}
 ```
 
-To seed the database:
+Users can also click on any marker to automatically zoom and rotate to that location.
 
-```bash
-npm run seed
-```
+If the model fails to load, the system will automatically fall back to the default cone markers.
 
-## Building for Production
+## Location Data Format
 
-```bash
-npm run build
-```
+Location data should be in the following format:
 
-## Starting the Production Server
-
-```bash
-npm start
+```js
+{
+  pointName: "Location Name",
+  city: "City",
+  country: "Country",
+  latitude: 40.7128,
+  longitude: -74.0060,
+  description: "Description of this location"
+}
 ```
 
 ## License
 
-ISC 
+[Your license information] 

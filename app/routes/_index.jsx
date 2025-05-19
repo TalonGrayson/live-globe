@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
+import { setupEarth, setMarkerModel } from '../globe/main.js';
 
 export const loader = async () => {
   // You can fetch data here that will be used by the component
@@ -14,6 +15,15 @@ export default function Index() {
   const cleanupRef = useRef(null);
   const data = useLoaderData();
   const [loading, setLoading] = useState(true);
+
+  function initGlobe() {
+    // Set the custom model before initializing
+    setMarkerModel('/models/pin.glb');
+    
+    // Then initialize the globe
+    const container = document.getElementById('globe-container');
+    setupEarth(container);
+  }
   
   useEffect(() => {
     let isMounted = true;
@@ -26,6 +36,8 @@ export default function Index() {
         
         // Only proceed if the component is still mounted
         if (!isMounted || !globeRef.current) return;
+
+        initGlobe();
         
         // The setupEarth function now handles cleanup internally
         const cleanup = await setupEarth(globeRef.current);

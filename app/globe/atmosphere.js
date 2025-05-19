@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 // Create atmosphere glow effect
 export function createAtmosphere(radius) {
-  // Atmosphere parameters - make it larger for a more visible glow
-  const atmosphereRadius = radius * 1.08;
+  // Atmosphere parameters - make it only slightly larger than Earth
+  const atmosphereRadius = radius * 0.99;
   
   // Create atmosphere geometry and material
   const atmosphereGeometry = new THREE.SphereGeometry(atmosphereRadius, 128, 128);
@@ -23,10 +23,10 @@ export function createAtmosphere(radius) {
       varying vec3 vPosition;
       
       void main() {
-        // Create a stronger glow effect
-        float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 4.0);
-        // Brighter blue color with more opacity
-        gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
+        // Create a much more subtle glow effect
+        float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 5.0);
+        // Less saturated blue color with lower opacity
+        gl_FragColor = vec4(0.2, 0.4, 0.8, 0.6) * intensity;
       }
     `,
     blending: THREE.AdditiveBlending,
@@ -34,7 +34,7 @@ export function createAtmosphere(radius) {
     transparent: true,
     depthWrite: false,
     depthTest: true,
-    opacity: 1.0
+    opacity: 0.7
   });
   
   // Create atmosphere mesh

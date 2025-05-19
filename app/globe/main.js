@@ -46,17 +46,39 @@ let clickedMarker = null; // Track the clicked marker
 let isAnimating = false; // Track if camera animation is in progress
 let container;
 
+let autoRotateActive = false;
+let lastInteractionTime = Date.now();
+let autoRotateSpeed = 0.0005; // radians per frame (slow)
+let inactivityTimeout = 10000; // 10 seconds
+let autoRotateTweenStart = null;
+let autoRotateTweenDuration = 2000; // ms to reach full speed
+
 const EARTH_RADIUS = 5;
+
+// At the top, add a helper to fetch user location
+async function getUserLatLon() {
+  try {
+    // Use a free geolocation API (ipapi.co)
+    const response = await fetch('https://ipapi.co/json/');
+    if (!response.ok) throw new Error('Failed to fetch geolocation');
+    const data = await response.json();
+    if (data && data.latitude && data.longitude) {
+      return { lat: data.latitude, lon: data.longitude };
+    }
+  } catch (e) {
+    console.warn('Could not determine user location, defaulting to (0,0)', e);
+  }
+  // Fallback: Null Island
+  return { lat: 0, lon: 0 };
+}
 
 // Initialize the scene
 export async function setupEarth(containerElement) {
   // Get a unique instance ID for this initialization
   const instanceId = ++instanceCount;
-  console.log(`Setting up Earth instance #${instanceId}`);
   
   // Remove any existing canvases to prevent duplication
   containerElement.querySelectorAll('canvas').forEach(canvas => {
-    console.log('Removing existing canvas');
     canvas.remove();
   });
   
@@ -74,8 +96,6 @@ export async function setupEarth(containerElement) {
         0.1, 
         1000
       );
-      camera.position.set(0, 10, 15);
-      camera.lookAt(0, 0, 0);
       
       // Set up bloom layer and materials
       bloomLayer = new THREE.Layers();
@@ -84,10 +104,11 @@ export async function setupEarth(containerElement) {
       
       // Create renderer with better settings
       renderer = new THREE.WebGLRenderer({ 
-        antialias: true, 
+        antialias: true, // Enable MSAA
         alpha: true,
         precision: 'highp',
-        powerPreference: 'high-performance'
+        powerPreference: 'high-performance',
+        samples: 4
       });
       renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio to prevent performance issues
@@ -96,8 +117,13 @@ export async function setupEarth(containerElement) {
       renderer.autoClear = false;
       container.appendChild(renderer.domElement);
       
-      // Set up post-processing with selective bloom effect
-      setupPostProcessing();
+      // Position camera to user's country BEFORE setting up controls and the rest
+      const initialCameraDistance = 15;
+      const { lat, lon } = await getUserLatLon();
+      const target = latLngToVector3(lat, lon, EARTH_RADIUS);
+      const cameraPos = target.clone().normalize().multiplyScalar(initialCameraDistance);
+      camera.position.copy(cameraPos);
+      camera.lookAt(0, 0, 0);
       
       // Add orbit controls
       controls = new OrbitControls(camera, renderer.domElement);
@@ -106,7 +132,13 @@ export async function setupEarth(containerElement) {
       controls.minDistance = EARTH_RADIUS + 1;
       controls.maxDistance = 30;
       controls.enablePan = false; // Disable panning for better UX
+      controls.target.set(0, 0, 0);
+      controls.update();
       
+      // Set up post-processing with selective bloom effect (must be after renderer/camera/scene)
+      setupPostProcessing();
+      
+      // Now continue with the rest of the setup...
       // Create raycaster for hover detection
       raycaster = new THREE.Raycaster();
       mouse = new THREE.Vector2();
@@ -159,8 +191,13 @@ export async function setupEarth(containerElement) {
       
       // Add event listeners
       window.addEventListener('resize', onWindowResize);
-      container.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mousedown', onUserInteraction, true);
+      window.addEventListener('touchstart', onUserInteraction, true);
+      window.addEventListener('keydown', onUserInteraction, true);
+      container.addEventListener('mousedown', onUserInteraction, true);
+      container.addEventListener('touchstart', onUserInteraction, true);
       container.addEventListener('click', onMouseClick);
+      container.addEventListener('mousemove', onMouseMove);
       
       // Create zoom controls if they don't exist
       const createZoomControls = () => {
@@ -228,24 +265,58 @@ export async function setupEarth(containerElement) {
       function animate() {
         if (!isRunning) return;
         
+        // Guard: skip if controls or camera are not ready
+        if (!controls || !camera) return;
+        
         animationFrameId = requestAnimationFrame(animate);
         
+        // Auto-rotation logic
+        if (!autoRotateActive && Date.now() - lastInteractionTime > inactivityTimeout) {
+          autoRotateActive = true;
+          autoRotateTweenStart = Date.now();
+          if (controls) controls.autoRotate = false; // We'll do our own rotation
+        }
+        let currentAutoRotateSpeed = 0;
+        if (autoRotateActive && controls) {
+          // Tween in the auto-rotation speed
+          if (autoRotateTweenStart) {
+            const elapsed = Date.now() - autoRotateTweenStart;
+            const t = Math.min(elapsed / autoRotateTweenDuration, 1);
+            // Ease in cubic
+            currentAutoRotateSpeed = autoRotateSpeed * Math.pow(t, 3);
+          } else {
+            currentAutoRotateSpeed = autoRotateSpeed;
+          }
+          // Rotate camera east-to-west (around Y axis)
+          const angle = currentAutoRotateSpeed;
+          const radius = camera.position.length();
+          const theta = Math.atan2(camera.position.z, camera.position.x) + angle;
+          const phi = Math.acos(camera.position.y / radius);
+          camera.position.x = radius * Math.sin(phi) * Math.cos(theta);
+          camera.position.z = radius * Math.sin(phi) * Math.sin(theta);
+          camera.position.y = radius * Math.cos(phi);
+          camera.lookAt(0, 0, 0);
+          controls.target.set(0, 0, 0);
+        }
+        
         // Update controls
-        controls.update();
+        if (controls) controls.update();
         
         // Update atmosphere position to match Earth
-        atmosphere.position.copy(earth.position);
-        atmosphere.rotation.copy(earth.rotation);
+        if (atmosphere && earth) {
+          atmosphere.position.copy(earth.position);
+          atmosphere.rotation.copy(earth.rotation);
+        }
         
         // No need to check for seconds here - always update sun position
         // This ensures it's always correct regardless of camera rotation
-        const sunLight = scene.children.find(obj => obj.isDirectionalLight);
+        const sunLight = scene && scene.children ? scene.children.find(obj => obj.isDirectionalLight) : null;
         if (sunLight) {
           updateSunPosition(sunLight);
         }
         
         // Check for hover on markers
-        checkIntersections();
+        if (typeof checkIntersections === 'function') checkIntersections();
         
         // Render scene with selective bloom
         renderWithBloom();
@@ -256,7 +327,6 @@ export async function setupEarth(containerElement) {
       
       // Create cleanup function
       const cleanup = () => {
-        console.log(`Cleaning up Earth instance #${instanceId}`);
         
         // Stop animation loop
         isRunning = false;
@@ -267,9 +337,14 @@ export async function setupEarth(containerElement) {
         
         // Remove event listeners
         window.removeEventListener('resize', onWindowResize);
+        window.removeEventListener('mousedown', onUserInteraction, true);
+        window.removeEventListener('touchstart', onUserInteraction, true);
+        window.removeEventListener('keydown', onUserInteraction, true);
         if (container) {
-          container.removeEventListener('mousemove', onMouseMove);
+          container.removeEventListener('mousedown', onUserInteraction, true);
+          container.removeEventListener('touchstart', onUserInteraction, true);
           container.removeEventListener('click', onMouseClick);
+          container.removeEventListener('mousemove', onMouseMove);
         }
         
         // Remove zoom controls
@@ -411,16 +486,15 @@ function setupPostProcessing() {
 
 // Render scene with selective bloom effect
 function renderWithBloom() {
+  // Guard: skip rendering if composers are not ready
+  if (!bloomComposer || !finalComposer) return;
   // Exclude non-bloom objects
   scene.traverse(darkenNonBloomed);
-  
   // Render bloom objects only
   renderer.clear();
   bloomComposer.render();
-  
   // Restore materials
   scene.traverse(restoreMaterial);
-  
   // Render final scene
   renderer.clear();
   finalComposer.render();
@@ -432,9 +506,6 @@ function darkenNonBloomed(obj) {
   if (obj.isMesh && !obj.layers.test(bloomLayer)) {
     // Store original material for later restoration
     materials[obj.uuid] = obj.material;
-    
-    // Debug which objects are being darkened vs kept for bloom
-    console.log(`Darkening object: ${obj.name || 'unnamed'}, in bloom layer: ${obj.layers.test(bloomLayer)}`);
     
     // Replace with dark material
     obj.material = darkMaterial;
@@ -469,25 +540,26 @@ function onWindowResize() {
 }
 
 // Handle mouse move for point hover
-function onMouseMove(event) {
-  if (!container) return;
-  
-  const rect = container.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
+function onUserInteraction() {
+  lastInteractionTime = Date.now();
+  if (autoRotateActive) {
+    autoRotateActive = false;
+    autoRotateTweenStart = null;
+    if (controls) controls.autoRotate = false;
+  }
 }
 
 // Handle mouse click for marker selection
 function onMouseClick(event) {
   if (!raycaster || !camera || !locationMarkers) return;
-  
+
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObject(locationMarkers, true);
-  
+
   if (intersects.length > 0) {
     const intersectedObject = intersects[0].object;
     let locationData;
-    
+
     // Check if this object has location data
     if (intersectedObject.userData && intersectedObject.userData.locationData) {
       locationData = intersectedObject.userData.locationData;
@@ -501,10 +573,10 @@ function onMouseClick(event) {
         parent = parent.parent;
       }
     }
-    
+
     if (locationData) {
-      // Set this as the clicked marker
-      clickedMarker = intersectedObject;
+      // Stop autorotation
+      onUserInteraction();
       // Focus on the location
       focusOnLocation(locationData);
       // Update the info panel
@@ -797,9 +869,6 @@ function updateSunPosition(sunLight) {
   // Make the light target the center of the Earth
   sunLight.lookAt(0, 0, 0);
   
-  // Log sun position for debugging
-  console.log(`Sun position: declination=${declination}°, hour=${hour}, position=(${sunX}, ${sunY}, ${sunZ})`);
-  
   return sunPosition;
 }
 
@@ -869,4 +938,12 @@ export function updateSunSettings(settings = {}) {
   }
   
   return ENV;
+}
+
+// Restore the onMouseMove function for hover/marker logic
+function onMouseMove(event) {
+  if (!renderer || !renderer.domElement) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 } 

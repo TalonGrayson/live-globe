@@ -4,33 +4,33 @@ import * as THREE from 'three';
 export async function createEarth(radius) {
   // Safely check for environment variables
   const isBrowser = typeof window !== 'undefined';
-  
+
   // Try to get environment variables if available, or use defaults
-  const ambientLight = isBrowser && window.ENV_SUN_AMBIENT_LIGHT !== undefined 
-    ? window.ENV_SUN_AMBIENT_LIGHT 
+  const ambientLight = isBrowser && window.ENV_SUN_AMBIENT_LIGHT !== undefined
+    ? window.ENV_SUN_AMBIENT_LIGHT
     : 0.1;
-    
-  const emissionIntensity = isBrowser && window.ENV_SUN_EMISSION_INTENSITY !== undefined 
-    ? window.ENV_SUN_EMISSION_INTENSITY 
+
+  const emissionIntensity = isBrowser && window.ENV_SUN_EMISSION_INTENSITY !== undefined
+    ? window.ENV_SUN_EMISSION_INTENSITY
     : 0.2;
-    
-  const debugTextures = isBrowser && window.ENV_DEBUG !== undefined 
-    ? window.ENV_DEBUG 
+
+  const debugTextures = isBrowser && window.ENV_DEBUG !== undefined
+    ? window.ENV_DEBUG
     : false;
-  
+
   const textureLoader = new THREE.TextureLoader();
   const DEBUG_TEXTURES = debugTextures; // Enable texture debugging
-  
+
   // Fallback simple texture in case loading fails
   const createFallbackTexture = (color) => {
     console.log(`Creating fallback texture with color ${color}`);
     const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 512;
+    canvas.width = 5400;
+    canvas.height = 2700;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+
     // Add a grid pattern to make it clear this is a fallback
     if (DEBUG_TEXTURES) {
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
@@ -49,7 +49,7 @@ export async function createEarth(radius) {
         ctx.stroke();
       }
     }
-    
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     return texture;
@@ -57,7 +57,7 @@ export async function createEarth(radius) {
 
   // Load textures with fallbacks
   let diffuseMap, bumpMap, roughnessMap, aoMap;
-  
+
   try {
     // Define texture paths correctly for Remix public assets
     const texturePaths = {
@@ -66,21 +66,45 @@ export async function createEarth(radius) {
       roughness: '/assets/textures/earth_roughness.jpg',
       ao: '/assets/textures/earth_ao.jpg'
     };
-    
+
     if (DEBUG_TEXTURES) {
       console.log('Loading textures from paths:', texturePaths);
       console.log('Current origin:', window.location.origin);
     }
-    
+
+    // Configure texture loader for maximum quality
+    textureLoader.crossOrigin = 'anonymous';
+    textureLoader.setPath('');  // Reset path to ensure absolute URLs work
+
     // Attempt to load all textures in sequence with individual error handling
     try {
+      // Create a new Image object to preload and verify dimensions
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      // Wait for the image to load first
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          console.log('Preloaded image dimensions:', {
+            naturalWidth: img.naturalWidth,
+            naturalHeight: img.naturalHeight,
+            width: img.width,
+            height: img.height
+          });
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = texturePaths.diffuse;
+      });
+
+      // Now load the texture
       diffuseMap = await loadTexture(textureLoader, texturePaths.diffuse);
       if (DEBUG_TEXTURES) console.log('✓ Diffuse map loaded successfully');
     } catch (err) {
       console.error('Failed to load diffuse map:', err);
       diffuseMap = createFallbackTexture('#1a4f9c');
     }
-    
+
     try {
       bumpMap = await loadTexture(textureLoader, texturePaths.bump);
       if (DEBUG_TEXTURES) console.log('✓ Bump map loaded successfully');
@@ -88,7 +112,7 @@ export async function createEarth(radius) {
       console.error('Failed to load bump map:', err);
       bumpMap = createFallbackTexture('#555555');
     }
-    
+
     try {
       roughnessMap = await loadTexture(textureLoader, texturePaths.roughness);
       if (DEBUG_TEXTURES) console.log('✓ Roughness map loaded successfully');
@@ -96,7 +120,7 @@ export async function createEarth(radius) {
       console.error('Failed to load roughness map:', err);
       roughnessMap = createFallbackTexture('#777777');
     }
-    
+
     try {
       aoMap = await loadTexture(textureLoader, texturePaths.ao);
       if (DEBUG_TEXTURES) console.log('✓ AO map loaded successfully');
@@ -104,7 +128,7 @@ export async function createEarth(radius) {
       console.error('Failed to load ao map:', err);
       aoMap = createFallbackTexture('#ffffff');
     }
-    
+
     if (DEBUG_TEXTURES) {
       console.log('Texture loading status:');
       console.log('- diffuse:', diffuseMap instanceof THREE.CanvasTexture ? 'fallback' : 'loaded');
@@ -120,29 +144,30 @@ export async function createEarth(radius) {
     roughnessMap = createFallbackTexture('#777777'); // Light gray
     aoMap = createFallbackTexture('#ffffff');       // White
   }
-  
+
   // Fix texture settings for proper wrapping
   const configureTexture = (texture) => {
     if (!texture) return;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.minFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
-    texture.anisotropy = 1; // Reduce anisotropy to fix striping
+    texture.anisotropy = 16;
+    texture.generateMipmaps = true;
     texture.needsUpdate = true;
   };
-  
+
   configureTexture(diffuseMap);
   configureTexture(bumpMap);
   configureTexture(roughnessMap);
   configureTexture(aoMap);
-  
+
   // Create custom shader material for day/night transition based on sun position
   const earthMaterial = new THREE.ShaderMaterial({
     uniforms: {
       dayTexture: { value: diffuseMap },
       bumpTexture: { value: bumpMap },
-      bumpScale: { value: 1 },
+      bumpScale: { value: 0.5 },
       sunPosition: { value: new THREE.Vector3(50, 0, 0) }, // Default sun position (will be updated)
       ambientLight: { value: ambientLight }, // Get from environment
       emissionIntensity: { value: emissionIntensity } // Get from environment
@@ -213,38 +238,38 @@ export async function createEarth(radius) {
     `,
     side: THREE.FrontSide,
   });
-  
+
   // Create Earth mesh with higher resolution
-  const earthGeometry = new THREE.SphereGeometry(radius, 128, 128); // Increased segments
+  const earthGeometry = new THREE.SphereGeometry(radius, 1024, 1024); // Increased segments
   const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-  
+
   // Method to update sun position
-  earth.updateSunPosition = function(sunPosition) {
+  earth.updateSunPosition = function (sunPosition) {
     if (this.material && this.material.uniforms) {
       this.material.uniforms.sunPosition.value.copy(sunPosition);
     }
   };
-  
+
   // Method to update shader parameters
-  earth.updateShaderParameters = function(params = {}) {
+  earth.updateShaderParameters = function (params = {}) {
     if (!this.material || !this.material.uniforms) return;
-    
+
     // Update ambient light if provided
     if (params.ambientLight !== undefined) {
       this.material.uniforms.ambientLight.value = params.ambientLight;
     }
-    
+
     // Update emission intensity if provided
     if (params.emissionIntensity !== undefined) {
       this.material.uniforms.emissionIntensity.value = params.emissionIntensity;
     }
-    
+
     // Update bump scale if provided
     if (params.bumpScale !== undefined) {
       this.material.uniforms.bumpScale.value = params.bumpScale;
     }
   };
-  
+
   return earth;
 }
 
@@ -254,7 +279,19 @@ function loadTexture(loader, url) {
     loader.load(
       url,
       (texture) => {
-        // Don't set texture parameters here - we'll configure them uniformly later
+        console.log(`Texture loaded from ${url}:`, {
+          originalWidth: texture.image.naturalWidth,
+          originalHeight: texture.image.naturalHeight,
+          loadedWidth: texture.image.width,
+          loadedHeight: texture.image.height
+        });
+        
+        // Force the texture to use the original image dimensions
+        texture.image.width = texture.image.naturalWidth;
+        texture.image.height = texture.image.naturalHeight;
+        
+        // Ensure the texture is using the full resolution
+        texture.needsUpdate = true;
         resolve(texture);
       },
       (xhr) => {

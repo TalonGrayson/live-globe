@@ -10,6 +10,7 @@ import { createStars } from './stars.js';
 import { loadLocationData } from './data.js';
 import { createLocationMarkers, updateInfoPanel } from './markers.js';
 import { initConfig, getConfig } from './config.js';
+import Stats from './stats.module.js';
 
 // Check if we're in browser environment
 const isBrowser = typeof window !== 'undefined';
@@ -52,6 +53,8 @@ let autoRotateSpeed = 0.0005; // radians per frame (slow)
 let inactivityTimeout = 10000; // 10 seconds
 let autoRotateTweenStart = null;
 let autoRotateTweenDuration = 2000; // ms to reach full speed
+
+let stats;
 
 const EARTH_RADIUS = 5;
 
@@ -186,7 +189,7 @@ export async function setupEarth(containerElement) {
       const locations = await loadLocationData();
       // Check if a custom marker model URL has been provided
       const markerModelUrl = window.MARKER_MODEL_URL || null;
-      locationMarkers = createLocationMarkers(locations, EARTH_RADIUS, markerModelUrl);
+      locationMarkers = await createLocationMarkers(locations, EARTH_RADIUS, markerModelUrl);
       scene.add(locationMarkers);
       
       // Add event listeners
@@ -268,6 +271,8 @@ export async function setupEarth(containerElement) {
         // Guard: skip if controls or camera are not ready
         if (!controls || !camera) return;
         
+        if (stats) stats.begin();
+        
         animationFrameId = requestAnimationFrame(animate);
         
         // Auto-rotation logic
@@ -320,6 +325,15 @@ export async function setupEarth(containerElement) {
         
         // Render scene with selective bloom
         renderWithBloom();
+        
+        if (renderer && renderer.info && renderer.info.render) {
+          console.log(
+            'Draw calls:', renderer.info.render.calls,
+            'Triangles:', renderer.info.render.triangles
+          );
+        }
+        
+        if (stats) stats.end();
       }
       
       // Start animation loop
@@ -389,6 +403,7 @@ export async function setupEarth(containerElement) {
       
       // Resolve the promise with the cleanup function
       setTimeout(() => {
+        setupStats();
         resolve(cleanup);
       }, 500);
     } catch (error) {
@@ -403,9 +418,9 @@ function setupPostProcessing() {
   // Create bloom layer materials based shader
   const bloomParams = {
     exposure: 1,
-    bloomStrength: 0.3,  // Reduced from 3.0 to 0.8
-    bloomThreshold: 1, // Increased from 0 to 0.1 to reduce what gets bloomed
-    bloomRadius: 0.1     // Reduced from 0.7 to 0.3
+    bloomStrength: window.GLOBE_BLOOM_STRENGTH  ?? 0.3,
+    bloomThreshold: window.GLOBE_BLOOM_THRESHOLD ?? 1,
+    bloomRadius: window.GLOBE_BLOOM_RADIUS      ?? 0.1,
   };
   
   // Bloom render pass
@@ -735,7 +750,7 @@ export async function updateMarkers(modelUrl = null) {
   const locations = await loadLocationData();
   
   // Create new markers with the model URL
-  locationMarkers = createLocationMarkers(locations, EARTH_RADIUS, modelUrl);
+  locationMarkers = await createLocationMarkers(locations, EARTH_RADIUS, modelUrl);
   
   // Add new markers to scene
   scene.add(locationMarkers);
@@ -946,4 +961,10 @@ function onMouseMove(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function setupStats() {
+  stats = new Stats();
+  stats.showPanel(0); // 0: fps
+  document.body.appendChild(stats.dom);
 } 

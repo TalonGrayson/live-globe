@@ -5,51 +5,157 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 const BLOOM_SCENE = 1;
 
 // Create location markers on the globe
-export function createLocationMarkers(locations, radius, modelUrl = null) {
+export async function createLocationMarkers(locations, radius, modelUrl = null) {
+  console.log('Creating markers for locations:', locations);
+  
   // Create parent object to hold all markers
   const markersGroup = new THREE.Object3D();
   
   // If a model URL is provided, load it first
   if (modelUrl) {
+    console.log('Loading custom marker model from:', modelUrl);
     const loader = new GLTFLoader();
     
     // Add cache-busting parameter to prevent browsers from using cached models
     const cacheBustedUrl = modelUrl + (modelUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
     
-    // Load the model asynchronously
-    loader.load(
-      cacheBustedUrl,
-      (gltf) => {
-        // Process each location
-        locations.forEach(location => {
-          // Convert latitude/longitude to 3D position
-          const position = latLngToVector3(location.latitude, location.longitude, radius);
-          
-          // Create marker with the loaded model
-          const markerMesh = createMarkerWithModel(position, gltf);
-          
-          // Attach location data to the model and all its children
-          markerMesh.userData.locationData = location;
-          markerMesh.traverse((child) => {
-            child.userData.locationData = location;
+    try {
+      // Load the model synchronously
+      const gltf = await new Promise((resolve, reject) => {
+        loader.load(
+          cacheBustedUrl,
+          resolve,
+          (xhr) => {
+            if (xhr.lengthComputable) {
+              console.log(`${(xhr.loaded / xhr.total * 100)}% loaded`);
+            } else {
+              console.log('Loading model...');
+            }
+          },
+          reject
+        );
+      });
+      
+      console.log('GLB model loaded successfully');
+      
+      // Create instanced meshes for each unique geometry in the model
+      const geometries = new Map();
+      const materials = new Map();
+      
+      // First pass: collect unique geometries and materials
+      gltf.scene.traverse((node) => {
+        if (node.isMesh) {
+          console.log('Found mesh in model:', node.name, {
+            geometry: node.geometry.uuid,
+            material: node.material.uuid,
+            position: node.position,
+            scale: node.scale,
+            visible: node.visible,
+            materialType: node.material.type,
+            geometryType: node.geometry.type
           });
           
-          // Add to parent group
-          markersGroup.add(markerMesh);
+          // Ensure the mesh is visible and properly scaled
+          node.visible = true;
+          node.scale.set(1, 1, 1);
+          
+          if (!geometries.has(node.geometry.uuid)) {
+            geometries.set(node.geometry.uuid, node.geometry);
+          }
+          if (!materials.has(node.material.uuid)) {
+            // Clone the material to ensure proper instance handling
+            const clonedMaterial = node.material.clone();
+            // Ensure material is visible and properly configured
+            clonedMaterial.visible = true;
+            clonedMaterial.transparent = true;
+            clonedMaterial.opacity = 1;
+            materials.set(node.material.uuid, clonedMaterial);
+          }
+        }
+      });
+
+      console.log('Found geometries:', geometries.size);
+      console.log('Found materials:', materials.size);
+
+      // Second pass: create instanced meshes
+      let instancedMeshCreated = false;
+      
+      // Debug: Log all geometry and material pairs
+      console.log('Available geometry-material pairs:');
+      geometries.forEach((geometry, geoUuid) => {
+        materials.forEach((material, matUuid) => {
+          console.log(`Geometry ${geoUuid} with Material ${matUuid}`);
         });
-      },
-      // Progress callback
-      (xhr) => {
-        console.log(`${(xhr.loaded / xhr.total * 100)}% loaded`);
-      },
-      // Error callback
-      (error) => {
-        console.error('Error loading GLTF model:', error);
-        // Fall back to default markers
+      });
+
+      // Use only the first geometry/material for all markers
+      const firstGeometry = geometries.values().next().value;
+      const firstMaterial = materials.values().next().value;
+      
+      if (firstGeometry && firstMaterial) {
+        // Log the original material properties
+        console.log('First marker material properties:', {
+          color: firstMaterial.color ? firstMaterial.color.getHexString() : undefined,
+          emissive: firstMaterial.emissive ? firstMaterial.emissive.getHexString() : undefined,
+          emissiveIntensity: firstMaterial.emissiveIntensity,
+          metalness: firstMaterial.metalness,
+          roughness: firstMaterial.roughness,
+          opacity: firstMaterial.opacity,
+          transparent: firstMaterial.transparent,
+          type: firstMaterial.type
+        });
+        // Do NOT override color/emissive now
+        firstMaterial.visible = true;
+        // firstMaterial.transparent = false; // Let GLB decide
+        // firstMaterial.opacity = 1; // Let GLB decide
+        
+        try {
+          const instancedMesh = new THREE.InstancedMesh(
+            firstGeometry,
+            firstMaterial,
+            locations.length
+          );
+          
+          locations.forEach((location, index) => {
+            const position = latLngToVector3(location.latitude, location.longitude, radius);
+            const matrix = new THREE.Matrix4();
+            const normal = position.clone().normalize();
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(
+              new THREE.Vector3(0, -1, 0),
+              normal
+            );
+            const scale = 0.05;
+            matrix.compose(
+              position.multiplyScalar(1.01),
+              quaternion,
+              new THREE.Vector3(scale, scale, scale)
+            );
+            instancedMesh.setMatrixAt(index, matrix);
+          });
+          instancedMesh.visible = true;
+          instancedMesh.material.visible = true;
+          instancedMesh.layers.enable(BLOOM_SCENE);
+          instancedMesh.castShadow = false;
+          instancedMesh.receiveShadow = false;
+          console.log('Instanced mesh material at creation:', instancedMesh.material);
+          markersGroup.add(instancedMesh);
+          console.log('Added instanced mesh for all markers:', locations.length);
+        } catch (error) {
+          console.error('Error creating instanced mesh:', error);
+          createDefaultMarkers(locations, radius, markersGroup);
+        }
+      } else {
+        console.error('No geometry/material found, falling back to default markers');
         createDefaultMarkers(locations, radius, markersGroup);
       }
-    );
+    } catch (error) {
+      console.error('Error loading GLTF model:', error);
+      // Fall back to default markers
+      createDefaultMarkers(locations, radius, markersGroup);
+    }
   } else {
+    console.log('Using default markers');
     // Use default markers if no model provided
     createDefaultMarkers(locations, radius, markersGroup);
   }
@@ -59,17 +165,66 @@ export function createLocationMarkers(locations, radius, modelUrl = null) {
 
 // Helper function to create default markers for all locations
 function createDefaultMarkers(locations, radius, markersGroup) {
-  locations.forEach(location => {
-    // Convert latitude/longitude to 3D position
-    const position = latLngToVector3(location.latitude, location.longitude, radius);
-    
-    // Create marker mesh
-    const markerMesh = createMarker(position);
-    markerMesh.userData.locationData = location;
-    
-    // Add to parent group
-    markersGroup.add(markerMesh);
+  console.log('Creating default markers');
+  
+  const pinColor = window.GLOBE_PIN_COLOR
+    ? parseInt(window.GLOBE_PIN_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveColor = window.GLOBE_PIN_EMISSIVE_COLOR
+    ? parseInt(window.GLOBE_PIN_EMISSIVE_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveIntensity = window.GLOBE_PIN_EMISSIVE_INTENSITY ?? 0.2;
+
+  const markerGeometry = new THREE.ConeGeometry(0.1, 0.1, 8);
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: pinColor,
+    emissive: pinEmissiveColor,
+    emissiveIntensity: pinEmissiveIntensity,
+    transparent: true,
+    opacity: 1,
+    visible: true
   });
+  
+  const instancedMesh = new THREE.InstancedMesh(
+    markerGeometry,
+    markerMaterial,
+    locations.length
+  );
+  
+  // Store location data in the instanced mesh
+  instancedMesh.userData.locations = locations;
+  
+  // Set up matrices for each instance
+  locations.forEach((location, index) => {
+    const position = latLngToVector3(location.latitude, location.longitude, radius);
+    console.log('Creating marker at position:', position);
+    
+    const matrix = new THREE.Matrix4();
+    
+    // Create a quaternion that orients the marker to the surface normal
+    const normal = position.clone().normalize();
+    const quaternion = new THREE.Quaternion();
+    quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, -1, 0), // Marker's up vector (-Y)
+      normal
+    );
+    
+    matrix.compose(
+      position.multiplyScalar(1.005), // Slightly above surface
+      quaternion,
+      new THREE.Vector3(1, 1, 1)
+    );
+    
+    instancedMesh.setMatrixAt(index, matrix);
+  });
+  
+  // Enable bloom effect
+  instancedMesh.layers.enable(BLOOM_SCENE);
+  
+  // Enable shadows
+  instancedMesh.castShadow = true;
+  instancedMesh.receiveShadow = true;
+  
+  console.log('Adding default markers to scene');
+  markersGroup.add(instancedMesh);
 }
 
 // Convert latitude and longitude to 3D Vector
@@ -166,7 +321,7 @@ function createMarkerWithModel(position, gltf) {
   }
   
   // Scale the model appropriately
-  const scale = 0.05;
+  const scale = 25;
   model.scale.set(scale, scale, scale);
   
   // Position model slightly above the surface
@@ -182,18 +337,21 @@ function createMarkerWithModel(position, gltf) {
 
 // Create default marker mesh (cone)
 function createMarker(position) {
-  // Make marker slightly above the surface
   const markerSize = 0.1;
   const markerHeight = 0.1;
   const adjustedPosition = position.clone().multiplyScalar(1.005);
-  
-  // Create cone geometry pointing outward from the center
+
+  const pinColor          = window.GLOBE_PIN_COLOR
+    ? parseInt(window.GLOBE_PIN_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveColor  = window.GLOBE_PIN_EMISSIVE_COLOR
+    ? parseInt(window.GLOBE_PIN_EMISSIVE_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveIntensity = window.GLOBE_PIN_EMISSIVE_INTENSITY ?? 0.2;
+
   const markerGeometry = new THREE.ConeGeometry(markerSize, markerHeight, 8);
-  const markerMaterial = new THREE.MeshBasicMaterial({ 
-    color: 0xff3333,
-    // Reduced emissive properties for more subtle glow
-    emissive: 0xff3333,
-    emissiveIntensity: 0.2  // Reduced from 0.5 to 0.2
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: pinColor,
+    emissive: pinEmissiveColor,
+    emissiveIntensity: pinEmissiveIntensity,
   });
   
   // Create marker mesh

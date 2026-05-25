@@ -2,9 +2,9 @@ import * as THREE from 'three';
 
 // Create star field background
 export function createStars() {
-  // Create stars parameters - more reasonable count
-  const starCount = 1500;
-  const starDistance = 350; // Further away to avoid clipping
+  const isBrowser = typeof window !== 'undefined';
+  const starCount    = isBrowser && window.GLOBE_STAR_COUNT   != null ? window.GLOBE_STAR_COUNT   : 1500;
+  const starDistance = 350;
   
   // Create stars geometry
   const starGeometry = new THREE.BufferGeometry();
@@ -32,12 +32,14 @@ export function createStars() {
   starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
   starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
   
-  // Create a simpler point material
+  const starSize    = isBrowser && window.GLOBE_STAR_SIZE    != null ? window.GLOBE_STAR_SIZE    : 1.0;
+  const starOpacity = isBrowser && window.GLOBE_STAR_OPACITY != null ? window.GLOBE_STAR_OPACITY : 0.8;
+
   const starMaterial = new THREE.PointsMaterial({
     color: 0xffffff,
-    size: 1.0,
+    size: starSize,
     transparent: true,
-    opacity: 0.8,
+    opacity: starOpacity,
     sizeAttenuation: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,

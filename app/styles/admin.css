@@ -241,3 +241,33 @@
   font-size: 0.85rem;
   color: #4caf50;
 }
+
+/* Two-column settings layout */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.preview-panel {
+  position: sticky;
+  top: 80px;
+  text-align: center;
+}
+
+.preview-canvas {
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  margin: 0 auto;
+  border: 1px solid #2a2a2a;
+}
+
+.preview-label {
+  font-size: 0.72rem;
+  color: #444;
+  margin-top: 0.75rem;
+}

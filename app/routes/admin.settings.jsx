@@ -1,4 +1,5 @@
-import { json, redirect } from "@remix-run/node";
+import { useEffect, useRef } from "react";
+import { json } from "@remix-run/node";
 import { Form, useLoaderData, useActionData, Link } from "@remix-run/react";
 import { requireAdmin } from "../sessions.server";
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from "../lib/settings.server";
@@ -18,9 +19,9 @@ export async function action({ request }) {
   await requireAdmin(request);
   const fd = await request.formData();
 
-  const num  = (key, def) => { const v = parseFloat(fd.get(key)); return isNaN(v) ? def : v; };
-  const int  = (key, def) => { const v = parseInt(fd.get(key), 10); return isNaN(v) ? def : v; };
-  const str  = (key, def) => fd.get(key)?.trim() || def;
+  const num = (key, def) => { const v = parseFloat(fd.get(key)); return isNaN(v) ? def : v; };
+  const int = (key, def) => { const v = parseInt(fd.get(key), 10); return isNaN(v) ? def : v; };
+  const str = (key, def) => fd.get(key)?.trim() || def;
 
   await saveSettings({
     pinColor:             str("pinColor",             DEFAULT_SETTINGS.pinColor),
@@ -48,6 +49,40 @@ export async function action({ request }) {
 export default function AdminSettings() {
   const { settings } = useLoaderData();
   const actionData   = useActionData();
+  const previewRef   = useRef(null);
+  const previewApi   = useRef(null);
+  const formRef      = useRef(null);
+
+  useEffect(() => {
+    if (!previewRef.current) return;
+    let api;
+    import("../globe/preview.js").then(({ setupPreview }) => {
+      if (!previewRef.current) return;
+      api = setupPreview(previewRef.current, settings);
+      previewApi.current = api;
+    });
+    return () => { api?.destroy(); previewApi.current = null; };
+  }, []);
+
+  function handleChange() {
+    if (!previewApi.current || !formRef.current) return;
+    const fd = new FormData(formRef.current);
+    const n  = (k) => parseFloat(fd.get(k));
+    previewApi.current.applySettings({
+      pinColor:            fd.get("pinColor"),
+      bloomStrength:       n("bloomStrength"),
+      bloomThreshold:      n("bloomThreshold"),
+      bloomRadius:         n("bloomRadius"),
+      atmosphereColor:     fd.get("atmosphereColor"),
+      atmosphereOpacity:   n("atmosphereOpacity"),
+      atmosphereIntensity: n("atmosphereIntensity"),
+      atmospherePower:     n("atmospherePower"),
+      sunIntensity:        n("sunIntensity"),
+      ambientLight:        n("ambientLight"),
+      starSize:            n("starSize"),
+      starOpacity:         n("starOpacity"),
+    });
+  }
 
   return (
     <div className="admin-dashboard">
@@ -62,15 +97,16 @@ export default function AdminSettings() {
         </Form>
       </header>
 
-      <main className="admin-main">
-        <Form method="post" className="settings-form">
+      <main className="admin-main settings-layout">
+
+        <Form method="post" className="settings-form" ref={formRef} onChange={handleChange}>
 
           <div className="settings-section">
             <h2>Pins</h2>
             <div className="settings-grid">
               <Field label="Colour" name="pinColor" type="color" value={settings.pinColor} />
               <Field label="Emissive colour" name="pinEmissiveColor" type="color" value={settings.pinEmissiveColor} />
-              <Field label="Emissive intensity" name="pinEmissiveIntensity" type="number" value={settings.pinEmissiveIntensity} min={0} max={5} step={0.01} hint="0 – 5" />
+              <Field label="Emissive intensity" name="pinEmissiveIntensity" type="number" value={settings.pinEmissiveIntensity} min={0} max={5} step={0.01} hint="GLB models only · 0 – 5" />
             </div>
           </div>
 
@@ -106,7 +142,7 @@ export default function AdminSettings() {
           <div className="settings-section">
             <h2>Stars</h2>
             <div className="settings-grid">
-              <Field label="Count" name="starCount" type="number" value={settings.starCount} min={0} max={10000} step={1} hint="0 – 10 000" />
+              <Field label="Count" name="starCount" type="number" value={settings.starCount} min={0} max={10000} step={1} hint="0 – 10 000 · reload to apply" />
               <Field label="Size" name="starSize" type="number" value={settings.starSize} min={0.1} max={5} step={0.1} hint="0.1 – 5" />
               <Field label="Opacity" name="starOpacity" type="number" value={settings.starOpacity} min={0} max={1} step={0.01} hint="0 – 1" />
             </div>
@@ -118,6 +154,12 @@ export default function AdminSettings() {
           </div>
 
         </Form>
+
+        <div className="preview-panel">
+          <div ref={previewRef} className="preview-canvas" />
+          <p className="preview-label">Preview · drag to rotate</p>
+        </div>
+
       </main>
     </div>
   );

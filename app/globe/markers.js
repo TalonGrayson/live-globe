@@ -182,18 +182,21 @@ function createMarkerWithModel(position, gltf) {
 
 // Create default marker mesh (cone)
 function createMarker(position) {
-  // Make marker slightly above the surface
   const markerSize = 0.1;
   const markerHeight = 0.1;
   const adjustedPosition = position.clone().multiplyScalar(1.005);
-  
-  // Create cone geometry pointing outward from the center
+
+  const pinColor          = window.GLOBE_PIN_COLOR
+    ? parseInt(window.GLOBE_PIN_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveColor  = window.GLOBE_PIN_EMISSIVE_COLOR
+    ? parseInt(window.GLOBE_PIN_EMISSIVE_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveIntensity = window.GLOBE_PIN_EMISSIVE_INTENSITY ?? 0.2;
+
   const markerGeometry = new THREE.ConeGeometry(markerSize, markerHeight, 8);
-  const markerMaterial = new THREE.MeshBasicMaterial({ 
-    color: 0xff3333,
-    // Reduced emissive properties for more subtle glow
-    emissive: 0xff3333,
-    emissiveIntensity: 0.2  // Reduced from 0.5 to 0.2
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: pinColor,
+    emissive: pinEmissiveColor,
+    emissiveIntensity: pinEmissiveIntensity,
   });
   
   // Create marker mesh

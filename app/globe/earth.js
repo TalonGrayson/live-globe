@@ -167,7 +167,7 @@ export async function createEarth(radius) {
     uniforms: {
       dayTexture: { value: diffuseMap },
       bumpTexture: { value: bumpMap },
-      bumpScale: { value: 0.5 },
+      bumpScale: { value: isBrowser && window.ENV_BUMP_SCALE != null ? window.ENV_BUMP_SCALE : 0.5 },
       sunPosition: { value: new THREE.Vector3(50, 0, 0) }, // Default sun position (will be updated)
       ambientLight: { value: ambientLight }, // Get from environment
       emissionIntensity: { value: emissionIntensity } // Get from environment

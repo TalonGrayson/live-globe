@@ -19,6 +19,33 @@ model GeoLocation {
   latitude    Float
   longitude   Float
   dateAdded   DateTime @default(now())
-  
+
   @@index([latitude, longitude])
+}
+
+model GlobeSettings {
+  id                   Int      @id @default(1)
+  // Pins
+  pinColor             String   @default("#ff3333")
+  pinEmissiveColor     String   @default("#ff3333")
+  pinEmissiveIntensity Float    @default(0.2)
+  // Bloom
+  bloomStrength        Float    @default(0.3)
+  bloomThreshold       Float    @default(1.0)
+  bloomRadius          Float    @default(0.1)
+  // Atmosphere
+  atmosphereColor      String   @default("#3366cc")
+  atmosphereOpacity    Float    @default(0.6)
+  atmosphereIntensity  Float    @default(0.65)
+  atmospherePower      Float    @default(5.0)
+  // Lighting
+  sunIntensity         Float    @default(1.2)
+  ambientLight         Float    @default(0.3)
+  emissionIntensity    Float    @default(0.25)
+  bumpScale            Float    @default(0.5)
+  // Stars
+  starCount            Int      @default(1500)
+  starSize             Float    @default(1.0)
+  starOpacity          Float    @default(0.8)
+  updatedAt            DateTime @updatedAt
 } 

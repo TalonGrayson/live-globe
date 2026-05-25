@@ -403,9 +403,9 @@ function setupPostProcessing() {
   // Create bloom layer materials based shader
   const bloomParams = {
     exposure: 1,
-    bloomStrength: 0.3,  // Reduced from 3.0 to 0.8
-    bloomThreshold: 1, // Increased from 0 to 0.1 to reduce what gets bloomed
-    bloomRadius: 0.1     // Reduced from 0.7 to 0.3
+    bloomStrength: window.GLOBE_BLOOM_STRENGTH  ?? 0.3,
+    bloomThreshold: window.GLOBE_BLOOM_THRESHOLD ?? 1,
+    bloomRadius: window.GLOBE_BLOOM_RADIUS      ?? 0.1,
   };
   
   // Bloom render pass

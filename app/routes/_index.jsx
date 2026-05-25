@@ -2,70 +2,65 @@ import { useEffect, useRef, useState } from "react";
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { setupEarth, setMarkerModel } from '../globe/main.js';
+import { getSettings } from "../lib/settings.server";
 
 export const loader = async () => {
-  // You can fetch data here that will be used by the component
-  return json({
-    // Your data here
-  });
+  const settings = await getSettings();
+  return json({ settings });
 };
 
 export default function Index() {
   const globeRef = useRef(null);
   const cleanupRef = useRef(null);
-  const data = useLoaderData();
+  const { settings } = useLoaderData();
   const [loading, setLoading] = useState(true);
 
-  function initGlobe() {
-    // Set the custom model before initializing
-    setMarkerModel('/models/pin.glb');
-    
-    // Then initialize the globe
-    const container = document.getElementById('globe-container');
-    setupEarth(container);
-  }
-  
   useEffect(() => {
+    // Inject settings as window variables before the globe initialises
+    window.GLOBE_PIN_COLOR             = settings.pinColor;
+    window.GLOBE_PIN_EMISSIVE_COLOR    = settings.pinEmissiveColor;
+    window.GLOBE_PIN_EMISSIVE_INTENSITY = settings.pinEmissiveIntensity;
+    window.GLOBE_BLOOM_STRENGTH        = settings.bloomStrength;
+    window.GLOBE_BLOOM_THRESHOLD       = settings.bloomThreshold;
+    window.GLOBE_BLOOM_RADIUS          = settings.bloomRadius;
+    window.GLOBE_ATMOSPHERE_COLOR      = settings.atmosphereColor;
+    window.GLOBE_ATMOSPHERE_OPACITY    = settings.atmosphereOpacity;
+    window.GLOBE_ATMOSPHERE_INTENSITY  = settings.atmosphereIntensity;
+    window.GLOBE_ATMOSPHERE_POWER      = settings.atmospherePower;
+    window.GLOBE_STAR_COUNT            = settings.starCount;
+    window.GLOBE_STAR_SIZE             = settings.starSize;
+    window.GLOBE_STAR_OPACITY          = settings.starOpacity;
+    // These keys match the existing config.js ENV_ convention
+    window.ENV_SUN_INTENSITY           = settings.sunIntensity;
+    window.ENV_SUN_AMBIENT_LIGHT       = settings.ambientLight;
+    window.ENV_SUN_EMISSION_INTENSITY  = settings.emissionIntensity;
+    window.ENV_BUMP_SCALE              = settings.bumpScale;
+
     let isMounted = true;
-    
-    // Import visualization code and set up the globe
+
     const loadGlobe = async () => {
       try {
-        // Import the modules dynamically to ensure they only run on the client
         const { setupEarth } = await import("../globe/main.js");
-        
-        // Only proceed if the component is still mounted
         if (!isMounted || !globeRef.current) return;
 
-        initGlobe();
-        
-        // The setupEarth function now handles cleanup internally
+        setMarkerModel('/models/pin.glb');
         const cleanup = await setupEarth(globeRef.current);
-        
-        // Store cleanup function
+
         if (isMounted) {
-          // Clean up previous instance if it exists
-          if (cleanupRef.current) {
-            cleanupRef.current();
-          }
-          
+          if (cleanupRef.current) cleanupRef.current();
           cleanupRef.current = cleanup;
           setLoading(false);
         } else if (cleanup) {
-          // Component unmounted during setup, clean up immediately
           cleanup();
         }
       } catch (error) {
         console.error("Error loading globe:", error);
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
-    
+
     loadGlobe();
-    
-    // Cleanup function
+
     return () => {
       isMounted = false;
       if (cleanupRef.current) {
@@ -73,13 +68,13 @@ export default function Index() {
         cleanupRef.current = null;
       }
     };
-  }, []);  // Empty dependency array means this runs once on mount
+  }, []);
 
   return (
     <div className="container">
       <h1>Live Globe Visualization</h1>
       <div ref={globeRef} id="globe-container" className="globe"></div>
-      
+
       {loading && (
         <div className="loading-container">
           <div className="loading-spinner"></div>
@@ -88,4 +83,4 @@ export default function Index() {
       )}
     </div>
   );
-} 
+}

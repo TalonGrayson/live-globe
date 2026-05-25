@@ -167,12 +167,17 @@ export async function createLocationMarkers(locations, radius, modelUrl = null) 
 function createDefaultMarkers(locations, radius, markersGroup) {
   console.log('Creating default markers');
   
-  // Create instanced geometry for default markers
+  const pinColor = window.GLOBE_PIN_COLOR
+    ? parseInt(window.GLOBE_PIN_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveColor = window.GLOBE_PIN_EMISSIVE_COLOR
+    ? parseInt(window.GLOBE_PIN_EMISSIVE_COLOR.replace('#', ''), 16) : 0xff3333;
+  const pinEmissiveIntensity = window.GLOBE_PIN_EMISSIVE_INTENSITY ?? 0.2;
+
   const markerGeometry = new THREE.ConeGeometry(0.1, 0.1, 8);
-  const markerMaterial = new THREE.MeshBasicMaterial({ 
-    color: 0xff3333,
-    emissive: 0xff3333,
-    emissiveIntensity: 0.2,
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color: pinColor,
+    emissive: pinEmissiveColor,
+    emissiveIntensity: pinEmissiveIntensity,
     transparent: true,
     opacity: 1,
     visible: true
